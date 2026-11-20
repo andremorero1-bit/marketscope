@@ -7,12 +7,13 @@ A stock market analytics dashboard built with Python and Streamlit.
 ## Features so far
 
 - Interactive candlestick chart for any ticker
-- 50-day moving average
+- 50-day moving average, volume, and RSI panels
 - Total return and annualized volatility over a selectable period
+- Side-by-side comparison of 2-4 tickers
 
 ## Planned features
 
-- RSI, MACD, Bollinger Bands, and volume
+- MACD and Bollinger Bands
 - Portfolio builder with performance and risk metrics (Sharpe, beta, VaR)
 - Efficient frontier optimizer and Monte Carlo simulation
 
