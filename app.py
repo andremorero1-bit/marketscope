@@ -178,6 +178,58 @@ with tab3:
 
             st.caption(
                 "Assumes you held these share counts for the whole period. "
-                "Sharpe = (annualized return - risk-free rate) / volatility. "
+                "Sharpe = (annualized return - risk-free rate)"
+                " / volatility. "
                 "Educational only, not investment advice."
+            )
+            # ---------- Beta, alpha, and Value at Risk ----------
+            bench_r = px[bench].pct_change().dropna()
+            aligned = pd.concat([r, bench_r], axis=1, join="inner").dropna()
+            aligned.columns = ["port", "bench"]
+
+            # Beta = covariance(portfolio, market) / variance(market)
+            beta = aligned["port"].cov(aligned["bench"]) / aligned["bench"].var()
+            # Alpha (annualized) = portfolio return - [rf + beta * (market return - rf)]
+            alpha = (aligned["port"].mean() * 252 - rf) - beta * (
+                aligned["bench"].mean() * 252 - rf
+            )
+
+            # 95% one-day VaR, as a loss on today's portfolio value
+            hist_var = -r.quantile(0.05)
+            param_var = -(r.mean() - 1.645 * r.std())
+            current_val = port.iloc[-1]
+
+            st.subheader("Market risk")
+            m1, m2 = st.columns(2)
+            m1.metric("Beta vs S&P 500", f"{beta:.2f}")
+            m2.metric("Alpha (annualized)", f"{alpha:.1%}")
+            v1, v2 = st.columns(2)
+            v1.metric(
+                "1-day VaR 95% (historical)",
+                f"${hist_var * current_val:,.0f}",
+                f"{hist_var:.2%} of portfolio", delta_color="off",
+            )
+            v2.metric(
+                "1-day VaR 95% (parametric)",
+                f"${param_var * current_val:,.0f}",
+                f"{param_var:.2%} of portfolio", delta_color="off",
+            )
+
+            # ---------- Correlation heatmap ----------
+            if len(names) >= 2:
+                corr = px[names].pct_change().dropna().corr()
+                fig5 = go.Figure(go.Heatmap(
+                    z=corr.values, x=corr.columns, y=corr.index,
+                    zmin=-1, zmax=1, colorscale="RdBu_r",
+                    text=corr.round(2).values, texttemplate="%{text}",
+                ))
+                fig5.update_layout(
+                    title="Correlation of daily returns", height=450
+                )
+                st.plotly_chart(fig5, width="stretch")
+
+            st.caption(
+                "VaR is a statistical estimate, not a guarantee: real losses "
+                "can exceed it, especially in market crashes. Beta and alpha "
+                "are measured against SPY over the selected period."
             )
