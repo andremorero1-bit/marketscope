@@ -9,7 +9,7 @@ st.title("MarketScope")
 # One time-period dropdown shared by all tabs
 period = st.selectbox("Time period", ["6mo", "1y", "5y", "10y"], index=1)
 
-tab1, tab2, tab3 = st.tabs(["Explorer", "Compare", "Portfolio"])
+tab1, tab2, tab3, tab4 = st.tabs(["Explorer", "Compare", "Portfolio", "Optimizer"])
 
 # ---------------- TAB 1: single-stock explorer ----------------
 with tab1:
@@ -233,3 +233,126 @@ with tab3:
                 "can exceed it, especially in market crashes. Beta and alpha "
                 "are measured against SPY over the selected period."
             )
+
+           
+# ---------------- TAB 4: efficient frontier optimizer ----------------
+import numpy as np
+from scipy.optimize import minimize
+
+with tab4:
+    raw_o = st.text_input(
+        "Tickers to optimize (2-10), separated by commas",
+        value="AAPL, MSFT, NVDA, KO, JPM", key="opt_tickers",
+    )
+    rf_o = st.number_input(
+        "Risk-free rate (%)", value=4.0, step=0.25, key="opt_rf"
+    ) / 100
+    st.caption("Tip: use the 5y or 10y period above. 6 months is too little data.")
+
+    tick_o = list(dict.fromkeys(
+        t.strip().upper() for t in raw_o.split(",") if t.strip()
+    ))[:10]
+
+    if len(tick_o) < 2:
+        st.info("Enter at least two tickers.")
+    else:
+        px_o = yf.download(
+            tick_o, period=period, auto_adjust=True, progress=False
+        )["Close"]
+        if isinstance(px_o, pd.Series):
+            px_o = px_o.to_frame(name=tick_o[0])
+        px_o = px_o.dropna(axis=1, how="all").dropna()
+
+        if px_o.shape[1] < 2 or len(px_o) < 60:
+            st.error("Not enough data. Check the tickers or use a longer period.")
+        else:
+            rets = px_o.pct_change().dropna()
+            names_o = list(px_o.columns)
+            mu = rets.mean().values * 252      # expected annual returns
+            cov = rets.cov().values * 252      # annual covariance matrix
+            n = len(mu)
+
+            def stats(w):
+                return w @ mu, np.sqrt(w @ cov @ w)   # (return, volatility)
+
+            sum_to_one = {"type": "eq", "fun": lambda w: w.sum() - 1}
+            bounds = [(0, 1)] * n                      # long-only
+            w0 = np.ones(n) / n
+
+            # Max Sharpe and minimum volatility portfolios
+            ms = minimize(
+                lambda w: -(stats(w)[0] - rf_o) / stats(w)[1],
+                w0, method="SLSQP", bounds=bounds, constraints=[sum_to_one],
+            )
+            mv = minimize(
+                lambda w: stats(w)[1],
+                w0, method="SLSQP", bounds=bounds, constraints=[sum_to_one],
+            )
+            w_ms, w_mv = ms.x, mv.x
+
+            # Efficient frontier: lowest volatility for each target return
+            f_vol, f_ret = [], []
+            for t in np.linspace(stats(w_mv)[0], mu.max(), 30):
+                res = minimize(
+                    lambda w: stats(w)[1], w0, method="SLSQP", bounds=bounds,
+                    constraints=[sum_to_one,
+                                 {"type": "eq", "fun": lambda w, t=t: w @ mu - t}],
+                )
+                if res.success:
+                    f_vol.append(stats(res.x)[1])
+                    f_ret.append(t)
+
+            # 4,000 random portfolios for the background cloud
+            rng = np.random.default_rng(42)
+            W = rng.dirichlet(np.ones(n), 4000)
+            R = W @ mu
+            V = np.sqrt(np.einsum("ij,jk,ik->i", W, cov, W))
+            S = (R - rf_o) / V
+
+            fig6 = go.Figure()
+            fig6.add_trace(go.Scatter(
+                x=V, y=R, mode="markers", name="Random portfolios",
+                marker=dict(color=S, colorscale="Viridis", size=5,
+                            colorbar=dict(title="Sharpe")),
+            ))
+            fig6.add_trace(go.Scatter(
+                x=f_vol, y=f_ret, mode="lines", name="Efficient frontier",
+                line=dict(width=3),
+            ))
+            for label, w in [("Max Sharpe", w_ms), ("Min volatility", w_mv)]:
+                ret, vol = stats(w)
+                fig6.add_trace(go.Scatter(
+                    x=[vol], y=[ret], mode="markers", name=label,
+                    marker=dict(size=16, symbol="star",
+                                line=dict(width=1, color="black")),
+                ))
+            fig6.update_layout(
+                xaxis_title="Annualized volatility",
+                yaxis_title="Annualized return",
+                xaxis_tickformat=".0%", yaxis_tickformat=".0%", height=500,
+            )
+            st.plotly_chart(fig6, width="stretch")
+
+            # Weights and summary table
+            weights = pd.DataFrame(
+                {"Max Sharpe": w_ms, "Min volatility": w_mv}, index=names_o
+            )
+            st.subheader("Optimal weights (%)")
+            st.dataframe((weights * 100).round(1))
+
+            summary_o = pd.DataFrame({
+                label: {
+                    "Expected return": stats(w)[0],
+                    "Volatility": stats(w)[1],
+                    "Sharpe ratio": (stats(w)[0] - rf_o) / stats(w)[1],
+                }
+                for label, w in [("Max Sharpe", w_ms), ("Min volatility", w_mv)]
+            })
+            st.dataframe(summary_o.round(3))
+
+            st.caption(
+                "Mean-variance optimization (Markowitz), long-only. Expected "
+                "returns are estimated from past data, which is noisy, so "
+                "results are in-sample and not a forecast. Educational only, "
+                "not investment advice."
+            ) 
