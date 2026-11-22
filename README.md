@@ -10,12 +10,15 @@ A stock market analytics dashboard built with Python and Streamlit.
 - 50-day moving average, volume, and RSI panels
 - Total return and annualized volatility over a selectable period
 - Side-by-side comparison of 2-4 tickers
+- Portfolio tab: value, allocation, and performance vs. the S&P 500
+- Risk metrics: Sharpe ratio, max drawdown, beta, alpha, and 1-day 95% VaR (historical and parametric)
+- Correlation heatmap of holdings
 
 ## Planned features
 
 - MACD and Bollinger Bands
-- Portfolio builder with performance and risk metrics (Sharpe, beta, VaR)
 - Efficient frontier optimizer and Monte Carlo simulation
+- Stress tests (2008, 2020, 2022) and DCF calculator
 
 ## Tech stack
 
