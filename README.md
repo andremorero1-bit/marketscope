@@ -13,11 +13,12 @@ A stock market analytics dashboard built with Python and Streamlit.
 - Portfolio tab: value, allocation, and performance vs. the S&P 500
 - Risk metrics: Sharpe ratio, max drawdown, beta, alpha, and 1-day 95% VaR (historical and parametric)
 - Correlation heatmap of holdings
+- Efficient frontier optimizer (Markowitz mean-variance) with max-Sharpe and min-volatility portfolios
 
 ## Planned features
 
 - MACD and Bollinger Bands
-- Efficient frontier optimizer and Monte Carlo simulation
+- Monte Carlo simulation
 - Stress tests (2008, 2020, 2022) and DCF calculator
 
 ## Tech stack
