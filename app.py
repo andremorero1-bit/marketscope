@@ -9,7 +9,7 @@ st.title("MarketScope")
 # One time-period dropdown shared by all tabs
 period = st.selectbox("Time period", ["6mo", "1y", "5y", "10y"], index=1)
 
-tab1, tab2, tab3, tab4 = st.tabs(["Explorer", "Compare", "Portfolio", "Optimizer"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Explorer", "Compare", "Portfolio", "Optimizer", "Monte Carlo"])
 
 # ---------------- TAB 1: single-stock explorer ----------------
 with tab1:
@@ -356,3 +356,92 @@ with tab4:
                 "results are in-sample and not a forecast. Educational only, "
                 "not investment advice."
             ) 
+
+
+# ---------------- TAB 5: Monte Carlo simulation ----------------
+with tab5:
+    raw_m = st.text_input(
+        "Holdings as TICKER:SHARES, separated by commas",
+        value="AAPL:10, MSFT:5, NVDA:8, KO:15", key="mc_holdings",
+    )
+    years = st.slider("Forecast horizon (years)", 1, 5, 1, key="mc_years")
+    n_sims = st.select_slider(
+        "Number of simulations", options=[500, 1000, 2000, 5000],
+        value=1000, key="mc_sims",
+    )
+    st.caption("Tip: use the 5y or 10y period above so the estimates are stable.")
+
+    hold_m = {}
+    try:
+        for item in raw_m.split(","):
+            if item.strip():
+                t, s = item.split(":")
+                hold_m[t.strip().upper()] = float(s)
+    except ValueError:
+        st.error("Use the format AAPL:10, MSFT:5")
+        hold_m = {}
+
+    if len(hold_m) >= 1:
+        names_m = list(hold_m.keys())
+        px_m = yf.download(
+            names_m, period=period, auto_adjust=True, progress=False
+        )["Close"]
+        if isinstance(px_m, pd.Series):
+            px_m = px_m.to_frame(name=names_m[0])
+        px_m = px_m.dropna(axis=1, how="all").dropna()
+
+        if px_m.empty or len(px_m) < 60:
+            st.error("Not enough data. Check the tickers or use a longer period.")
+        else:
+            names_m = list(px_m.columns)
+            shares_m = pd.Series(hold_m)[names_m]
+            start_val = float((px_m.iloc[-1] * shares_m).sum())
+            w_m = (px_m.iloc[-1] * shares_m) / start_val   # current weights
+
+            rets_m = px_m.pct_change().dropna()
+            mean_d = rets_m.mean().values                  # daily mean returns
+            cov_d = rets_m.cov().values                    # daily covariance
+            days = 252 * years
+
+            # Simulate correlated daily returns, hold weights fixed
+            rng = np.random.default_rng(7)
+            draws = rng.multivariate_normal(mean_d, cov_d, size=(n_sims, days))
+            port_daily = draws @ w_m.values                # (sims, days)
+            paths = start_val * np.cumprod(1 + port_daily, axis=1)
+            paths = np.hstack([np.full((n_sims, 1), start_val), paths])
+
+            end = paths[:, -1]
+            p5, p50, p95 = np.percentile(end, [5, 50, 95])
+            prob_loss = (end < start_val).mean()
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Starting value", f"${start_val:,.0f}")
+            c2.metric("Median ending", f"${p50:,.0f}")
+            c3.metric("5th - 95th pct", f"${p5:,.0f} - ${p95:,.0f}")
+            c4.metric("Chance of loss", f"{prob_loss:.0%}")
+
+            x = np.arange(days + 1)
+            fig7 = go.Figure()
+            for i in range(min(100, n_sims)):             # 100 sample paths
+                fig7.add_trace(go.Scatter(
+                    x=x, y=paths[i], mode="lines", showlegend=False,
+                    line=dict(width=0.6, color="rgba(100,140,200,0.25)"),
+                ))
+            for q, label in [(5, "5th percentile"), (50, "Median"), (95, "95th percentile")]:
+                fig7.add_trace(go.Scatter(
+                    x=x, y=np.percentile(paths, q, axis=0), mode="lines",
+                    name=label, line=dict(width=3),
+                ))
+            fig7.update_layout(
+                xaxis_title="Trading days ahead",
+                yaxis_title="Portfolio value ($)", height=500,
+            )
+            st.plotly_chart(fig7, width="stretch")
+
+            st.caption(
+                "Simulates correlated daily returns drawn from a normal "
+                "distribution fitted to past data, with fixed weights and no "
+                "rebalancing. Real markets have fatter tails, so extreme "
+                "outcomes are understated. A scenario tool, not a forecast. "
+                "Educational only, not investment advice."
+            )
