@@ -9,7 +9,7 @@ st.title("MarketScope")
 # One time-period dropdown shared by all tabs
 period = st.selectbox("Time period", ["6mo", "1y", "5y", "10y"], index=1)
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Explorer", "Compare", "Portfolio", "Optimizer", "Monte Carlo"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Explorer", "Compare", "Portfolio", "Optimizer", "Monte Carlo", "DCF"])
 
 # ---------------- TAB 1: single-stock explorer ----------------
 with tab1:
@@ -445,3 +445,84 @@ with tab5:
                 "outcomes are understated. A scenario tool, not a forecast. "
                 "Educational only, not investment advice."
             )
+
+ 
+# ---------------- TAB 6: DCF calculator ----------------
+with tab6:
+    st.subheader("Discounted Cash Flow (DCF) calculator")
+    dcf_t = st.text_input("Ticker to value", value="AAPL", key="dcf_ticker").upper()
+
+    # Pull starting numbers from Yahoo Finance to pre-fill the inputs
+    default_fcf, default_shares, default_debt, default_cash, default_price = 100.0, 10.0, 0.0, 0.0, 0.0
+    try:
+        tk = yf.Ticker(dcf_t)
+        cf = tk.cashflow
+        if "Free Cash Flow" in cf.index:
+            default_fcf = float(cf.loc["Free Cash Flow"].dropna().iloc[0]) / 1e9
+        info = tk.info
+        default_shares = float(info.get("sharesOutstanding", 0)) / 1e9 or default_shares
+        default_debt = float(info.get("totalDebt", 0)) / 1e9
+        default_cash = float(info.get("totalCash", 0)) / 1e9
+        default_price = float(info.get("currentPrice", 0) or 0)
+        st.caption(f"Inputs pre-filled from Yahoo Finance for {dcf_t}. Edit any of them.")
+    except Exception:
+        st.warning("Couldn't load company data. Enter the numbers manually.")
+
+    c1, c2, c3 = st.columns(3)
+    fcf0 = c1.number_input("Latest free cash flow ($B)", value=round(default_fcf, 2), key="dcf_fcf")
+    shares = c2.number_input("Shares outstanding (B)", value=round(default_shares, 3), key="dcf_shares")
+    debt = c3.number_input("Total debt ($B)", value=round(default_debt, 2), key="dcf_debt")
+    c4, c5, c6 = st.columns(3)
+    cash = c4.number_input("Cash ($B)", value=round(default_cash, 2), key="dcf_cash")
+    growth = c5.number_input("FCF growth, years 1-5 (%)", value=8.0, step=0.5, key="dcf_g") / 100
+    wacc = c6.number_input("Discount rate / WACC (%)", value=9.0, step=0.5, key="dcf_wacc") / 100
+    term_g = st.number_input("Terminal growth rate (%)", value=2.5, step=0.25, key="dcf_tg") / 100
+
+    def dcf_value(g, w, tg):
+        # Present value of 5 years of cash flows plus a terminal value
+        flows = [fcf0 * (1 + g) ** t for t in range(1, 6)]
+        pv_flows = sum(f / (1 + w) ** t for t, f in zip(range(1, 6), flows))
+        terminal = flows[-1] * (1 + tg) / (w - tg)
+        pv_terminal = terminal / (1 + w) ** 5
+        ev = pv_flows + pv_terminal
+        equity = ev - debt + cash
+        return flows, pv_flows, pv_terminal, ev, equity / shares
+
+    if wacc <= term_g:
+        st.error("The discount rate must be higher than the terminal growth rate.")
+    elif shares <= 0:
+        st.error("Shares outstanding must be above zero.")
+    else:
+        flows, pv_flows, pv_term, ev, per_share = dcf_value(growth, wacc, term_g)
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Enterprise value", f"${ev:,.0f}B")
+        m2.metric("PV of terminal value", f"${pv_term:,.0f}B", f"{pv_term / ev:.0%} of EV", delta_color="off")
+        m3.metric("Implied value / share", f"${per_share:,.2f}")
+        if default_price > 0:
+            m4.metric("Current price", f"${default_price:,.2f}", f"{per_share / default_price - 1:+.0%} vs. implied", delta_color="off")
+
+        proj = pd.DataFrame({
+            "Year": range(1, 6),
+            "Free cash flow ($B)": flows,
+            "Discount factor": [1 / (1 + wacc) ** t for t in range(1, 6)],
+        })
+        proj["PV of FCF ($B)"] = proj["Free cash flow ($B)"] * proj["Discount factor"]
+        st.dataframe(proj.round(3), hide_index=True)
+
+        # Sensitivity table: value per share across WACC and terminal growth
+        st.subheader("Sensitivity: implied value per share")
+        waccs = [wacc + d for d in (-0.02, -0.01, 0, 0.01, 0.02)]
+        tgs = [term_g + d for d in (-0.01, -0.005, 0, 0.005, 0.01)]
+        grid = pd.DataFrame(
+            [[dcf_value(growth, w, tg)[4] if w > tg else float("nan") for tg in tgs] for w in waccs],
+            index=[f"WACC {w:.1%}" for w in waccs],
+            columns=[f"TG {tg:.1%}" for tg in tgs],
+        )
+        st.dataframe(grid.round(2))
+
+        st.caption(
+            "Simple 5-year, single-stage DCF with a Gordon growth terminal value. "
+            "Results are very sensitive to the growth and discount-rate inputs, "
+            "which is why the table above matters. Educational only, not investment advice."
+        )           
