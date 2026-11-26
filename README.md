@@ -3,6 +3,7 @@
 A stock market analytics dashboard built with Python and Streamlit.
 
 **Status:** In development
+**Live demo:** https://marketscope.streamlit.app
 
 ## Features so far
 
