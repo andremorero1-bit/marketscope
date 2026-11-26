@@ -16,15 +16,16 @@ A stock market analytics dashboard built with Python and Streamlit.
 - Correlation heatmap of holdings
 - Efficient frontier optimizer (Markowitz mean-variance) with max-Sharpe and min-volatility portfolios
 - Monte Carlo simulation of portfolio outcomes (1-5 year horizon) with percentile bands and probability of loss
+- DCF calculator with editable assumptions and a WACC / terminal growth sensitivity table
 
 ## Planned features
 
 - MACD and Bollinger Bands
-- Stress tests (2008, 2020, 2022) and DCF calculator
+- Stress tests (2008, 2020, 2022)
 
 ## Tech stack
 
-Python, Streamlit, pandas, Plotly, yfinance
+Python, Streamlit, pandas, NumPy, SciPy, Plotly, yfinance
 
 ## Run it locally
 
